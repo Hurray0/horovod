@@ -52,3 +52,8 @@
 [submodule "third_party/HTTPRequest"]
 	path = third_party/HTTPRequest
 	url = https://github.com/elnormous/HTTPRequest
+[submodule "third_party/MegRay"]
+	path = third_party/MegRay
+  #url = https://github.com/MegEngine/MegRay.git
+  url = git@git-core.megvii-inc.com:brain-sdk/megray.git
+  branch = add-dist-proxy

@@ -78,6 +78,11 @@
 #include "ops/gloo_operations.h"
 #endif
 
+#if HAVE_MEGRAY
+//#include "megray/megray_controller.h"
+#include "ops/megray_operations.h"
+#endif
+
 /*
  * Allreduce, Allgather and Broadcast Ops.
  *
@@ -127,6 +132,10 @@ GPUContext gpu_context;
 
 #if HAVE_NCCL
 NCCLContext nccl_context;
+#endif
+
+#if HAVE_MEGRAY
+MegrayContext megray_context;
 #endif
 
 #if HAVE_DDL
@@ -194,6 +203,17 @@ OperationManager* CreateOperationManager(HorovodGlobalState& state) {
     broadcast_ops.push_back(
         std::shared_ptr<BroadcastOp>(new GlooBroadcast(&gloo_context, &state)));
   }
+#endif
+
+#if HAVE_MEGRAY
+	if (megray_context.IsEnabled()) {
+    allreduce_ops.push_back(
+        std::shared_ptr<AllreduceOp>(new MegrayAllreduce(&megray_context, &state)));
+    allgather_ops.push_back(
+        std::shared_ptr<AllgatherOp>(new MegrayAllgather(&megray_context, &state)));
+    broadcast_ops.push_back(
+        std::shared_ptr<BroadcastOp>(new MegrayBroadcast(&megray_context, &state)));
+	}
 #endif
 
 #if HAVE_CCL
@@ -374,6 +394,11 @@ void BackgroundThreadLoop(HorovodGlobalState& state) {
     }
 #endif
 
+#if HAVE_MEGRAY
+		// Initialize megray context
+    megray_context.Initialize(0); // TODO: temporarily set cuda device to 0
+#endif
+
   // Initialize controller
   state.controller->Initialize();
 
@@ -518,6 +543,10 @@ void BackgroundThreadLoop(HorovodGlobalState& state) {
   gloo_context.Finalize();
 #endif
 
+#if HAVE_MEGRAY
+  megray_context.Finalize();
+#endif
+
   LOG(DEBUG, horovod_global.controller->GetRank()) << "Shutting down background thread";
 
   // Signal that shutdown has been requested.
@@ -636,6 +665,21 @@ void InitializeHorovodOnce(const int* ranks, int nranks) {
           horovod_global.parameter_manager, gloo_context));
     }
 #endif
+
+#if HAVE_MEGRAY
+    // Enable megray is it's used either in cpu data transfer or controller
+    if (horovod_global.cpu_operation == LibType::MEGRAY ||
+        horovod_global.control_operation == LibType::MEGRAY) {
+      megray_context.Enable();
+    }
+
+    if (horovod_global.control_operation == LibType::MEGRAY) {
+      // horovod_global.controller.reset(new GlooController(
+      //     horovod_global.response_cache,
+      //     horovod_global.tensor_queue, horovod_global.timeline,
+      //     horovod_global.parameter_manager, gloo_context));
+    }
+#endif
     // Reset initialization flag
     horovod_global.initialization_done = false;
     horovod_global.background_thread = std::thread(
@@ -752,8 +796,24 @@ bool horovod_gloo_enabled() {
 #endif
 }
 
+bool horovod_megray_enabled() {
+#if HAVE_MEGRAY
+  return megray_context.IsEnabled();
+#else
+  return false;
+#endif
+}
+
 bool horovod_gloo_built() {
 #if HAVE_GLOO
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool horovod_megray_built() {
+#if HAVE_MEGRAY
   return true;
 #else
   return false;

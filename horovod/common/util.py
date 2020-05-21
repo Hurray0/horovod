@@ -150,6 +150,17 @@ def gloo_built(verbose=False):
     raise RuntimeError('Failed to determine if Gloo support has been built. '
                        'Run again with --verbose for more details.')
 
+@_cache
+def megray_built(verbose=False):
+    for ext_base_name in EXTENSIONS:
+        built_fn = lambda ext: ext.megray_built()
+        result = _check_extension_lambda(
+            ext_base_name, built_fn, 'built with MegRay', verbose)
+        if result is not None:
+            return result
+    raise RuntimeError('Failed to determine if MegRay support has been built. '
+                       'Run again with --verbose for more details.')
+
 
 @_cache
 def nccl_built(verbose=False):

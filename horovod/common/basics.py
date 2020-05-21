@@ -186,6 +186,25 @@ class HorovodBasics(object):
         """
         return bool(self.MPI_LIB_CTYPES.horovod_gloo_built())
 
+    def megray_enabled(self):
+        """Returns True if MegRay is mode is currently enabled at runtime.
+
+        If MegRay is enabled, users can use it for controller or data transfer operations.
+
+        Returns:
+          A boolean value indicating whether Gloo is enabled.
+        """
+        megray_enabled = self.MPI_LIB_CTYPES.horovod_megray_enabled()
+        return bool(megray_enabled)
+
+    def megray_built(self):
+        """Returns True if Horovod was compiled with MegRay support.
+
+        Returns:
+          A boolean value indicating whether MegRay support was compiled.
+        """
+        return bool(self.MPI_LIB_CTYPES.horovod_megray_built())
+
     def nccl_built(self):
         """Returns True if Horovod was compiled with NCCL support.
 

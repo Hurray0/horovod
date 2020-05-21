@@ -23,7 +23,7 @@
 namespace horovod {
 namespace common {
 
-enum class LibType { MPI = 0, CCL = 1, GLOO = 2 };
+enum class LibType { MPI = 0, CCL = 1, GLOO = 2, MEGRAY=3 };
 
 std::string TypeName(LibType type);
 
@@ -42,6 +42,8 @@ void SetIntFromEnv(const char* env, int& val);
 int GetIntEnvOrDefault(const char* env_variable, int default_value);
 
 double GetDoubleEnvOrDefault(const char* env_variable, double default_value);
+
+std::string GetStringEnvOrDefault(const char* env_variable, std::string default_value);
 
 } // namespace common
 } // namespace horovod

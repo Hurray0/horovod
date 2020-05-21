@@ -87,6 +87,9 @@ bool horovod_gloo_built();
 // C interface to return flag indicating whether Horovod was compiled with NCCL support.
 bool horovod_nccl_built();
 
+// C interface to return flag indicating whether Horovod was compiled with MegRay support.
+bool horovod_megray_built();
+
 // C interface to return flag indicating whether Horovod was compiled with DDL support.
 bool horovod_ddl_built();
 

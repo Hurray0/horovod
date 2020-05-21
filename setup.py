@@ -51,6 +51,8 @@ torch_mpi_lib_v2 = Extension('horovod.torch.mpi_lib_v2', [])
 mxnet_mpi_lib = Extension('horovod.mxnet.mpi_lib', [])
 gloo_lib = CMakeExtension('gloo', cmake_lists_dir='third_party/gloo',
                           sources=[])
+megray_lib = CMakeExtension('MegRay', cmake_lists_dir='third_party/MegRay',
+                          sources=[])
 
 ccl_root = os.environ.get('CCL_ROOT')
 have_ccl = ccl_root is not None
@@ -631,6 +633,38 @@ def get_common_options(build_ext):
             print('INFO: Cannot find MPI compilation flags, will skip compiling with MPI.')
             have_mpi = False
 
+    compile_without_megray = os.environ.get('HOROVOD_WITHOUT_MEGRAY')
+    megray_flags = ''
+    if compile_without_megray:
+        print('INFO: HOROVOD_WITHOUT_MEGRAY detected, skip compiling Horovod with MegRay.')
+        have_megray = False
+        have_cmake = False
+    else:
+        # determining if system has cmake installed
+        compile_with_megray = os.environ.get('HOROVOD_WITH_MEGRAY')
+        try:
+            cmake_bin = get_cmake_bin()
+            subprocess.check_output([cmake_bin, '--version'])
+            have_cmake = True
+        except Exception:
+            if compile_with_megray:
+                # Require Gloo to succeed, otherwise fail the install.
+                raise RuntimeError('Cannot find CMake. CMake is required to build Horovod with Gloo.')
+
+            print('INFO: Cannot find CMake, will skip compiling Horovod with Gloo.')
+            have_cmake = False
+
+        # TODO: remove system check if gloo support MacOX in the future
+        #  https://github.com/facebookincubator/gloo/issues/182
+        if is_mac:
+            if compile_with_megray:
+                raise RuntimeError('MegRay cannot be compiled on MacOS. Unset HOROVOD_WITH_MEGRAY to use MPI.')
+            print('INFO: MegRay cannot be compiled on MacOS, will skip compiling Horovod with MegRay.')
+
+        have_megray = not is_mac and have_cmake
+
+
+
     if not have_gloo and not have_mpi:
         raise RuntimeError('One of Gloo or MPI are required for Horovod to run. Check the logs above for more info.')
 
@@ -659,7 +693,7 @@ def get_common_options(build_ext):
             have_cuda = True
             gpu_include_dirs, gpu_lib_dirs = get_cuda_dirs(build_ext, cpp_flags)
         elif gpu_type == 'ROCM':
-            have_rocm = True
+            ##have_rocm = True
             gpu_include_dirs, gpu_lib_dirs, gpu_macros = get_rocm_dirs(build_ext, cpp_flags)
         else:
             raise DistutilsError("Unknown HOROVOD_GPU type '%s'" % gpu_type)
@@ -776,6 +810,17 @@ def get_common_options(build_ext):
                     'horovod/common/gloo/memory_store.cc',
                     'horovod/common/ops/gloo_operations.cc']
 
+    if have_megray:
+        MACROS += [('HAVE_MEGRAY', '1')]
+        INCLUDES += ['third_party/MegRay']
+        INCLUDES += ['third_party/MegRay/third_party/rpclib/include']
+        set_cuda_options(build_ext, COMPILE_FLAGS, MACROS, INCLUDES, SOURCES, have_mpi, LIBRARY_DIRS, LIBRARIES)
+        SOURCES += ['horovod/common/megray/megray_context.cc',
+                    'horovod/common/ops/megray_operations.cc']
+        LIBRARY_DIRS += ['']
+        #LINK_FLAGS += ['-lmegray', '-lrpc']
+
+
     if have_ccl:
         MACROS += [('HAVE_CCL', '1')]
         INCLUDES += [ccl_root + '/include/']
@@ -832,6 +877,7 @@ def get_common_options(build_ext):
                 LIBRARIES=LIBRARIES,
                 BUILD_GLOO=have_gloo,
                 BUILD_MPI=have_mpi,
+                BUILD_MEGRAY=have_megray,
                 )
 
 
@@ -1195,6 +1241,7 @@ def get_torch_rocm_macros():
 
 def is_torch_rocm_v2(build_ext, include_dirs, extra_compile_args):
     try:
+        return False;
         from torch.utils.cpp_extension import include_paths
         rocm_macros = get_torch_rocm_macros()
         test_compile(build_ext, 'test_torch_rocm',
@@ -1260,6 +1307,9 @@ def build_torch_extension(build_ext, global_options, torch_version):
     # Build gloo
     if options['BUILD_GLOO']:
         build_cmake(build_ext, gloo_lib, 'torch', [], options)
+		
+    if options['BUILD_MEGRAY']:
+        build_cmake(build_ext, megray_lib, 'torch', [], options);
 
     # Update HAVE_CUDA to mean that PyTorch supports CUDA. Internally, we will be checking
     # HOROVOD_GPU_(ALLREDUCE|ALLGATHER|BROADCAST) to decide whether we should use GPU
@@ -1371,6 +1421,7 @@ def build_torch_extension_v2(build_ext, global_options, torch_version):
                                str(int(torch.compiled_with_cxx11_abi())))
 
     gloo_abi_flag = ['-D_GLIBCXX_USE_CXX11_ABI=' + str(int(torch.compiled_with_cxx11_abi()))]
+    megray_flag = ['-Lmegray']
 
     # PyTorch requires -DTORCH_API_INCLUDE_EXTENSION_H
     updated_macros = set_macro(updated_macros, 'TORCH_API_INCLUDE_EXTENSION_H', '1')
@@ -1444,6 +1495,9 @@ def build_torch_extension_v2(build_ext, global_options, torch_version):
                  LDSHARED=ldshared):
             if options['BUILD_GLOO']:
                 build_cmake(build_ext, gloo_lib, 'torchv2', gloo_abi_flag, options, torch_mpi_lib_v2)
+            if options['BUILD_MEGRAY']:
+                build_cmake(build_ext, megray_lib, 'torchv2', megray_flag, options, torch_mpi_lib_v2)
+					
             customize_compiler(build_ext.compiler)
             build_ext.build_extension(torch_mpi_lib_v2)
     finally:
@@ -1610,7 +1664,7 @@ setup(name='horovod',
           'License :: OSI Approved :: Apache Software License'
       ],
       ext_modules=[tensorflow_mpi_lib, torch_mpi_lib, torch_mpi_lib_impl,
-                   torch_mpi_lib_v2, mxnet_mpi_lib, gloo_lib],
+                   torch_mpi_lib_v2, mxnet_mpi_lib, gloo_lib, megray_lib],
       cmdclass={'build_ext': custom_build_ext},
       # cffi is required for PyTorch
       # If cffi is specified in setup_requires, it will need libffi to be installed on the machine,

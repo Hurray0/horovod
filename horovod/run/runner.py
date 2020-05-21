@@ -35,12 +35,14 @@ import horovod
 
 from horovod.common.util import (extension_available,
                                  gloo_built, mpi_built,
+                                 megray_built,
                                  nccl_built, ddl_built, ccl_built)
 from horovod.run.common.util import config_parser, safe_shell_exec, timeout, secret
 from horovod.run.common.util import settings as hvd_settings
 from horovod.run.driver import driver_service
 from horovod.run.util import cache, threads, network, lsf
 from horovod.run.gloo_run import gloo_run
+from horovod.run.megray_run import megray_run
 from horovod.run.mpi_run import mpi_run
 from horovod.run.js_run import js_run, is_jsrun_installed
 from horovod.run.http.http_client import read_data_from_kvstore, put_data_into_kvstore
@@ -127,12 +129,14 @@ def check_build(verbose):
     Available Controllers:
         [{mpi}] MPI
         [{gloo}] Gloo
+        [{megray}] MegRay
 
     Available Tensor Operations:
         [{nccl_ops}] NCCL
         [{ddl_ops}] DDL
         [{ccl_ops}] CCL
         [{mpi_ops}] MPI
+        [{megray_ops}] MegRay
         [{gloo_ops}] Gloo\
     '''.format(verbose_newline='\n' if verbose else '',
                version=horovod.__version__,
@@ -141,10 +145,12 @@ def check_build(verbose):
                mxnet = get_check(extension_available('mxnet', verbose=verbose)),
                mpi=get_check(mpi_built(verbose=verbose)),
                gloo=get_check(gloo_built(verbose=verbose)),
+               megray=get_check(megray_built(verbose=verbose)),
                nccl_ops=get_check(nccl_built(verbose=verbose)),
                ddl_ops=get_check(ddl_built(verbose=verbose)),
                mpi_ops=get_check(mpi_built(verbose=verbose)),
                ccl_ops=get_check(ccl_built(verbose=verbose)),
+               megray_ops=get_check(megray_built(verbose=verbose)),
                gloo_ops=get_check(gloo_built(verbose=verbose)))
     print(textwrap.dedent(output))
     os._exit(0)
@@ -430,8 +436,11 @@ def parse_args():
 
     group_controller_parent = parser.add_argument_group('controller arguments')
     group_controller = group_controller_parent.add_mutually_exclusive_group()
-    group_controller.add_argument('--gloo', action='store_true', dest='use_gloo',
-                                  help='Run Horovod using the Gloo controller. This will '
+    group_controller.add_argument('--gloo', action='store_true', dest='use_megray',
+                                  help='Run Horovod using the MegRay controller. This will '
+                                       'be the default if Horovod was not built with MPI support.')
+    group_controller.add_argument('--megray', action='store_true', dest='use_megray',
+                                  help='Run Horovod using the MegRay controller. This will '
                                        'be the default if Horovod was not built with MPI support.')
     group_controller.add_argument('--mpi', action='store_true', dest='use_mpi',
                                   help='Run Horovod using the MPI controller. This will '
@@ -511,6 +520,7 @@ class HorovodArgs(object):
 
         # controller arguments
         self.use_gloo = None
+        self.use_megray = None
         self.use_mpi = None
         self.use_jsrun = None
 
@@ -657,13 +667,18 @@ def _run(args):
         return None
 
 
-def run_controller(use_gloo, gloo_run, use_mpi, mpi_run, use_jsrun, js_run, verbosity):
+def run_controller(use_gloo, gloo_run, use_megray, megray_run, use_mpi, mpi_run, use_jsrun, js_run, verbosity):
     verbose = verbosity is not None and verbosity >= 2
     if use_gloo:
         if not gloo_built(verbose=verbose):
             raise ValueError('Gloo support has not been built.  If this is not expected, ensure CMake is installed '
                              'and reinstall Horovod with HOROVOD_WITH_GLOO=1 to debug the build error.')
         gloo_run()
+    elif use_megray:
+        if not megray_built(verbose=verbose):
+            raise ValueError('MegRay support has not been built.  If this is not expected, ensure CMake is installed '
+                             'and reinstall Horovod with HOROVOD_WITH_MEGRAY=1 to debug the build error.')
+        megray_run()
     elif use_mpi:
         if not mpi_built(verbose=verbose):
             raise ValueError('MPI support has not been built.  If this is not expected, ensure MPI is installed '
@@ -701,10 +716,14 @@ def _launch_job(args, remote_host_names, settings, nics, command):
     def mpi_run_fn():
         mpi_run(settings, nics, env, command)
 
+    def megray_run_fu():
+        megray_run(settings, server_ip, server_port, );
+
     def js_run_fn():
         js_run(settings, nics, env, command)
 
     run_controller(args.use_gloo, gloo_run_fn,
+                   args.use_megray, megray_run_fu,
                    args.use_mpi, mpi_run_fn,
                    args.use_jsrun, js_run_fn,
                    args.verbose)
@@ -766,6 +785,8 @@ def run(
                             For MPI, delegates its behavior to mpirun.
     :param verbose: If this flag is set, extra messages will be printed.
     :param use_gloo: Run Horovod using the Gloo controller. This will
+                     be the default if Horovod was not built with MPI support.
+    :param use_megray: Run Horovod using the Gloo controller. This will
                      be the default if Horovod was not built with MPI support.
     :param use_mpi: Run Horovod using the MPI controller. This will
                     be the default if Horovod was built with MPI support.
